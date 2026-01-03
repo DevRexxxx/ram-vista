@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { PromptConfig, GeneratorType } from '../types.ts';
 import { GENERATOR_PROMPTS } from '../constants.ts';
-import { generateArtifact } from '../services/geminiService.ts';
-import { Terminal, Copy, Check, Loader2, Cpu, FileCode, Presentation, Zap, ChevronRight, Binary, BrainCircuit } from 'lucide-react';
+import { generateArtifact, GeminiError } from '../services/geminiService.ts';
+import { Terminal, Copy, Check, Loader2, Cpu, FileCode, Presentation, Zap, ChevronRight, Binary, BrainCircuit, AlertTriangle, RefreshCw } from 'lucide-react';
 
 const LOADING_MESSAGES = [
   "Initializing neural pathways...",
@@ -13,6 +13,67 @@ const LOADING_MESSAGES = [
   "Finalizing generator sequence..."
 ];
 
+// Error Display Component
+interface ErrorDisplayProps {
+  message: string;
+  code: string;
+  onRetry: () => void;
+}
+
+const ErrorDisplay: React.FC<ErrorDisplayProps> = ({ message, code, onRetry }) => {
+  const getHowToFix = (code: string): string => {
+    switch(code) {
+      case 'API_KEY_MISSING':
+        return 'Add your Gemini API key to the environment variables and restart the application.';
+      case 'INVALID_API_KEY':
+        return 'Verify your API key at https://aistudio.google.com/app/apikey and update your environment variables.';
+      case 'QUOTA_EXCEEDED':
+        return 'Wait a few minutes before trying again, or upgrade your API quota at Google AI Studio.';
+      case 'ACCESS_FORBIDDEN':
+        return 'Check that your API key has the necessary permissions for the selected model.';
+      case 'MODEL_NOT_FOUND':
+        return 'The model may have been updated. Try selecting a different artifact type or check the Gemini documentation.';
+      case 'NETWORK_ERROR':
+        return 'Verify your internet connection is stable and try again.';
+      default:
+        return 'Review the error details and try again. If the problem persists, check the console for more information.';
+    }
+  };
+
+  return (
+    <div className="h-full flex flex-col items-center justify-center p-8 animate-in fade-in slide-in-from-bottom-2 duration-500">
+      <div className="max-w-md w-full bg-red-50 dark:bg-red-950/20 border-2 border-red-200 dark:border-red-900/50 rounded-2xl p-8 space-y-6">
+        <div className="flex items-start gap-4">
+          <div className="p-3 bg-red-100 dark:bg-red-900/30 rounded-xl">
+            <AlertTriangle className="w-6 h-6 text-red-600 dark:text-red-400" />
+          </div>
+          <div className="flex-1">
+            <h3 className="text-lg font-bold text-red-900 dark:text-red-200 mb-2">Generation Failed</h3>
+            <p className="text-sm text-red-700 dark:text-red-300 leading-relaxed">{message}</p>
+          </div>
+        </div>
+        
+        <div className="bg-white dark:bg-doodle-black rounded-xl p-4 border border-red-200 dark:border-red-900/50">
+          <h4 className="text-xs font-bold text-red-900 dark:text-red-200 uppercase tracking-wider mb-2">How to Fix</h4>
+          <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">{getHowToFix(code)}</p>
+        </div>
+
+        <button
+          onClick={onRetry}
+          className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-red-600 hover:bg-red-700 dark:bg-red-700 dark:hover:bg-red-600 text-white rounded-xl font-bold transition-all shadow-lg active:scale-95"
+        >
+          <RefreshCw className="w-5 h-5" />
+          Try Again
+        </button>
+
+        <div className="text-center">
+          <p className="text-xs text-gray-500 dark:text-gray-400 font-mono">Error Code: {code}</p>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const Generator: React.FC = () => {
   const [selectedType, setSelectedType] = useState<GeneratorType>(GeneratorType.ARCHITECTURE);
   const [loading, setLoading] = useState(false);
@@ -20,8 +81,14 @@ const Generator: React.FC = () => {
   const [loadingMessageIndex, setLoadingMessageIndex] = useState(0);
   const [output, setOutput] = useState<Partial<Record<GeneratorType, string>>>({});
   const [copied, setCopied] = useState(false);
+  const [error, setError] = useState<{ message: string; code: string } | null>(null);
 
   const activePrompt = GENERATOR_PROMPTS[selectedType];
+
+  // Clear error when switching artifact types
+  useEffect(() => {
+    setError(null);
+  }, [selectedType]);
 
   // Cycling loading messages and progress bar simulation
   useEffect(() => {
@@ -52,6 +119,7 @@ const Generator: React.FC = () => {
 
   const handleGenerate = async () => {
     setLoading(true);
+    setError(null); // Clear any previous errors
     try {
       const result = await generateArtifact(
         activePrompt.model,
@@ -63,7 +131,18 @@ const Generator: React.FC = () => {
       setProgress(100);
     } catch (err) {
       console.error(err);
-      setOutput(prev => ({ ...prev, [selectedType]: "Error generating content. Please check API Key and try again." }));
+      // Handle GeminiError
+      if (err instanceof GeminiError) {
+        setError({ message: err.message, code: err.code });
+      } else {
+        // Fallback for unexpected errors
+        setError({ 
+          message: err instanceof Error ? err.message : 'An unexpected error occurred',
+          code: 'UNKNOWN_ERROR'
+        });
+      }
+      // Clear output for current type on error
+      setOutput(prev => ({ ...prev, [selectedType]: '' }));
     } finally {
       setTimeout(() => {
         setLoading(false);
@@ -153,18 +232,18 @@ const Generator: React.FC = () => {
                   {copied ? <Check className="w-5 h-5 text-green-400" /> : <Copy className="w-5 h-5" />}
                 </button>
               )}
-               <button
-               onClick={handleGenerate}
-               disabled={loading}
-               className={`flex items-center gap-2 px-6 py-3 rounded-xl font-bold transition-all shadow-lg active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed ${
-                 output[selectedType] 
-                   ? 'bg-gray-100 dark:bg-doodle-base text-gray-900 dark:text-white border border-gray-200 dark:border-doodle-border hover:border-gray-300 dark:hover:border-doodle-highlight' 
-                   : 'bg-doodle-blue text-white hover:bg-blue-600'
-               }`}
-             >
-               {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Zap className="w-5 h-5" />}
-               {loading ? 'Initializing...' : (output[selectedType] ? 'Regenerate' : 'Generate Artifact')}
-             </button>
+                              <button
+                onClick={handleGenerate}
+                disabled={loading}
+                className={`flex items-center gap-2 px-6 py-3 rounded-xl font-bold transition-all shadow-lg active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed ${
+                  output[selectedType] || error
+                    ? 'bg-gray-100 dark:bg-doodle-base text-gray-900 dark:text-white border border-gray-200 dark:border-doodle-border hover:border-gray-300 dark:hover:border-doodle-highlight' 
+                    : 'bg-doodle-blue text-white hover:bg-blue-600'
+                }`}
+              >
+                {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Zap className="w-5 h-5" />}
+                {loading ? 'Initializing...' : (output[selectedType] || error ? 'Regenerate' : 'Generate Artifact')}
+              </button>
             </div>
           </div>
           
@@ -197,6 +276,8 @@ const Generator: React.FC = () => {
                  </div>
                </div>
             </div>
+          ) : error ? (
+            <ErrorDisplay message={error.message} code={error.code} onRetry={handleGenerate} />
           ) : output[selectedType] ? (
             <pre className="font-mono text-sm text-gray-800 dark:text-doodle-text whitespace-pre-wrap leading-relaxed animate-in fade-in slide-in-from-bottom-2 duration-500">
               {output[selectedType]}
