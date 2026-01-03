@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "pages:deploy": "wrangler pages deploy dist --project-name=ram-vista"
+    "pages:deploy": "wrangler pages deploy dist --project-name=$npm_package_name"
   },
   "dependencies": {
     "react": "^19.2.3",
