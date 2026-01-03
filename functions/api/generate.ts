@@ -6,7 +6,7 @@
 interface Env {
   GEMINI_API_KEY?: string;
   GROQ_API_KEY?: string;
-  AI_PROVIDER?: 'gemini' | 'groq';
+  AI_PROVIDER?: 'gemini' | 'groq'; // Defaults to 'groq' for better rate limits and free tier
 }
 
 interface GenerateRequest {
@@ -85,19 +85,25 @@ export async function onRequest(context: { request: Request; env: Env }) {
   // Determine which provider to use
   const provider = env.AI_PROVIDER || 'groq';
   
-  // Check if the required API key is configured
-  if (provider === 'groq' && !env.GROQ_API_KEY) {
-    return new Response(JSON.stringify({ error: 'Groq API Key not configured' }), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json' },
-    });
-  }
+  // Check if the required API key is configured and get the value
+  let apiKey: string;
   
-  if (provider === 'gemini' && !env.GEMINI_API_KEY) {
-    return new Response(JSON.stringify({ error: 'Gemini API Key not configured' }), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json' },
-    });
+  if (provider === 'groq') {
+    if (!env.GROQ_API_KEY) {
+      return new Response(JSON.stringify({ error: 'Groq API Key not configured' }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    apiKey = env.GROQ_API_KEY;
+  } else {
+    if (!env.GEMINI_API_KEY) {
+      return new Response(JSON.stringify({ error: 'Gemini API Key not configured' }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    apiKey = env.GEMINI_API_KEY;
   }
 
   try {
@@ -118,17 +124,17 @@ export async function onRequest(context: { request: Request; env: Env }) {
     // Handle streaming chat requests
     if (stream && history && newMessage) {
       if (provider === 'groq') {
-        return handleGroqStreamingChat(env.GROQ_API_KEY!, model, systemInstruction, history, newMessage);
+        return handleGroqStreamingChat(apiKey, model, systemInstruction, history, newMessage);
       } else {
-        return handleStreamingChat(env.GEMINI_API_KEY!, model, systemInstruction, history, newMessage);
+        return handleStreamingChat(apiKey, model, systemInstruction, history, newMessage);
       }
     }
 
     // Handle regular content generation
     if (provider === 'groq') {
-      return handleGroqGeneration(env.GROQ_API_KEY!, model, systemInstruction, userPrompt, isComplex);
+      return handleGroqGeneration(apiKey, model, systemInstruction, userPrompt, isComplex);
     } else {
-      return handleGeneration(env.GEMINI_API_KEY!, model, systemInstruction, userPrompt, isComplex);
+      return handleGeneration(apiKey, model, systemInstruction, userPrompt, isComplex);
     }
   } catch (error) {
     console.error('Error processing request:', error);
@@ -367,7 +373,7 @@ async function handleGroqStreamingChat(
   
   // Convert Gemini history format to Groq format
   for (const msg of history) {
-    const role = msg.role === 'model' ? 'assistant' : msg.role as 'user' | 'assistant';
+    const role = msg.role === 'model' ? 'assistant' : (msg.role === 'user' ? 'user' : 'assistant');
     const content = msg.parts.map(p => p.text).join('');
     messages.push({ role, content });
   }
@@ -452,7 +458,8 @@ async function handleGroqStreamingChat(
                 await writer.write(encoder.encode(`data: ${JSON.stringify(geminiFormat)}\n\n`));
               }
             } catch (e) {
-              // Skip invalid JSON
+              // Skip invalid JSON, but log for debugging
+              console.debug('Failed to parse Groq stream data:', data, e);
             }
           }
         }
