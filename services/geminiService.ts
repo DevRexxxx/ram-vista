@@ -1,8 +1,19 @@
 import { GoogleGenAI, GenerateContentResponse, Chat } from "@google/genai";
 import { GEMINI_MODELS } from "../constants.ts";
 
-// Initialize AI using process.env.API_KEY directly
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+// Lazy initialization of AI to avoid immediate errors in browser
+let ai: GoogleGenAI | null = null;
+
+const getAI = (): GoogleGenAI => {
+  if (!ai) {
+    const apiKey = import.meta.env.VITE_API_KEY || process.env.API_KEY;
+    if (!apiKey) {
+      throw new Error('API Key missing');
+    }
+    ai = new GoogleGenAI({ apiKey });
+  }
+  return ai;
+};
 
 // Custom error class for Gemini API errors
 export class GeminiError extends Error {
@@ -32,7 +43,8 @@ export const parseGeminiError = (error: any): GeminiError => {
   const errorStatus = error?.status || error?.code;
   
   // Check for missing API key
-  if (!process.env.API_KEY) {
+  const apiKey = import.meta.env.VITE_API_KEY || process.env.API_KEY;
+  if (!apiKey || errorMessage.includes('api key must be set')) {
     return new GeminiError(
       'API Key is missing. Please add your Gemini API key to the environment variables.',
       ERROR_CODES.API_KEY_MISSING
@@ -87,16 +99,14 @@ export const parseGeminiError = (error: any): GeminiError => {
 };
 
 export const checkApiKey = (): boolean => {
-  return !!process.env.API_KEY;
+  const apiKey = import.meta.env.VITE_API_KEY || process.env.API_KEY;
+  return !!apiKey;
 };
 
 export const generateQuickResponse = async (prompt: string): Promise<string> => {
-   if (!process.env.API_KEY) {
-     throw parseGeminiError(new Error('API Key missing'));
-   }
-   
    try {
-     const response = await ai.models.generateContent({
+     const client = getAI();
+     const response = await client.models.generateContent({
        model: GEMINI_MODELS.FAST,
        contents: prompt
      });
@@ -114,12 +124,9 @@ export const generateArtifact = async (
   userPrompt: string,
   isComplex: boolean
 ): Promise<string> => {
-  if (!process.env.API_KEY) {
-    throw parseGeminiError(new Error('API Key missing'));
-  }
-
   try {
-    const response = await ai.models.generateContent({
+    const client = getAI();
+    const response = await client.models.generateContent({
       model: model,
       contents: userPrompt,
       config: {
@@ -140,14 +147,10 @@ export const streamChatResponse = async function* (
   history: { role: string; parts: { text: string }[] }[],
   newMessage: string
 ): AsyncGenerator<string, void, unknown> {
-  if (!process.env.API_KEY) {
-    yield "❌ API Key missing in environment variables.";
-    return;
-  }
-
   try {
+    const client = getAI();
     // Correctly using Chat type and chats.create method.
-    const chat: Chat = ai.chats.create({
+    const chat: Chat = client.chats.create({
       model: GEMINI_MODELS.STANDARD,
       history: history,
       config: {
