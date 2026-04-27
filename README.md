@@ -144,7 +144,3 @@ npm run preview
 - **Build Tool:** Vite
 - **Deployment:** Cloudflare Pages
 - **AI:** Groq API (recommended) or Google Gemini API
-
-## License
-
-MIT
